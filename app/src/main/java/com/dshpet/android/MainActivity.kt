@@ -3,7 +3,9 @@ package com.dshpet.android
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -45,6 +47,10 @@ class MainActivity : Activity() {
     private lateinit var btnLinesExport: TextView
     private lateinit var btnLinesImport: TextView
     private lateinit var btnLinesReload: TextView
+    private lateinit var tapCountLabel: TextView
+    private val tapCountListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == Prefs.KEY_TAP_COUNT) refreshTapCount()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +73,18 @@ class MainActivity : Activity() {
         btnLinesExport = findViewById(R.id.btnLinesExport)
         btnLinesImport = findViewById(R.id.btnLinesImport)
         btnLinesReload = findViewById(R.id.btnLinesReload)
+        tapCountLabel = findViewById(R.id.tapCountLabel)
+        findViewById<TextView>(R.id.btnResetTapCount).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.tap_counter_reset)
+                .setMessage(R.string.tap_counter_reset_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.tap_counter_reset) { _, _ ->
+                    Prefs.resetTapCount(this)
+                    refreshTapCount()
+                }
+                .show()
+        }
 
         // 宠物名字来自 pet-config.json（现在是「大肥鱼」）
         try {
@@ -236,11 +254,22 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        Prefs.registerListener(this, tapCountListener)
+        refreshTapCount()
         // 每次回到设置页都重新对齐一次「从最近任务隐藏」；电池优化豁免只自动问一次
         val keep = Prefs.keepAlive(this)
         applyKeepAlive(keep, keep && !Prefs.keepAliveAsked(this))
         refresh()
         refreshLines()
+    }
+
+    override fun onPause() {
+        Prefs.unregisterListener(this, tapCountListener)
+        super.onPause()
+    }
+
+    private fun refreshTapCount() {
+        tapCountLabel.text = getString(R.string.tap_counter_total, Prefs.tapCount(this))
     }
 
     /** 尺寸/只数/躲藏开关只有重建悬浮窗才生效 */

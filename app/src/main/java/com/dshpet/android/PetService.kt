@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -86,6 +87,12 @@ class PetService : Service() {
     private var cfg: PetConfig? = null
     private var menuView: View? = null
     private var lines: Lines? = null
+    private val tapCountListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == Prefs.KEY_TAP_COUNT) {
+            val count = Prefs.tapCount(this)
+            held.forEach { it.pet.updateTapCount(count) }
+        }
+    }
 
     // ---- 台词气泡 ----
     private var bubbleRoot: View? = null
@@ -107,6 +114,7 @@ class PetService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Prefs.registerListener(this, tapCountListener)
         // 兜底：即使 Application 没被自定义（或在某些机型上被跳过），也保证音效预载
         try {
             Sfx.init(this)
@@ -281,6 +289,7 @@ class PetService : Service() {
                     }
                 }
                 pet.applyScale(sizeDp)
+                pet.updateTapCount(Prefs.tapCount(this))
                 pet.allowEdgeHide = Prefs.edgeHideOn(this)
                 pet.onLongPress = { showActionMenu(pet) }
                 pet.onTap = { onPetTapped(pet) }
@@ -503,6 +512,9 @@ class PetService : Service() {
     }
 
     private fun onPetTapped(pet: Pet) {
+        // 每次有效单击都计数，不受动画播放、音效或台词开关/冷却影响。
+        val count = Prefs.incrementTapCount(this)
+        pet.updateTapCount(count, showFeedback = true)
         val now = SystemClock.uptimeMillis()
         lastInteractMs = now
         if (now - tapWindowMs > 6000L) {
@@ -758,6 +770,7 @@ class PetService : Service() {
     }
 
     override fun onDestroy() {
+        Prefs.unregisterListener(this, tapCountListener)
         try {
             teardown()
         } catch (t: Throwable) {

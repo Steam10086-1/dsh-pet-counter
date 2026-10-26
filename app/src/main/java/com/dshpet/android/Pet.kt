@@ -2,11 +2,15 @@ package com.dshpet.android
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.ImageDecoder
 import android.os.SystemClock
+import android.text.TextUtils
+import android.text.TextPaint
 import android.util.Log
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import java.util.concurrent.Executors
@@ -117,7 +121,7 @@ class Pet(
 
     /** 长按回调（Service 里挂上一个「动作菜单」） */
     var onLongPress: (() -> Unit)? = null
-    /** 点一下（Service 用来统计连点 → 说一句「被戳烦了」） */
+    /** 有效单击（Service 累计功德，并统计连点台词；拖动/长按/取消不触发） */
     var onTap: (() -> Unit)? = null
     /** 被甩出去 */
     var onThrown: (() -> Unit)? = null
@@ -145,6 +149,11 @@ class Pet(
     }
 
     val view: View get() = canvasView
+
+    /** 只更新显示；累计数由 Service 统一写入本地，避免多只桌宠各记一份。 */
+    fun updateTapCount(count: Long, showFeedback: Boolean = false) {
+        canvasView.updateTapCount(count, showFeedback)
+    }
 
     // ---------------------------------------------------------------- 尺寸/位置
 
@@ -617,6 +626,27 @@ class Pet(
     // ---------------------------------------------------------------- 画布
 
     inner class PetCanvas(ctx: Context) : View(ctx), Drawable.Callback {
+        private val counterPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 11f, resources.displayMetrics)
+        }
+        private val feedbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13f, resources.displayMetrics)
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+        private var counterLabel = context.getString(R.string.tap_counter_badge, 0L)
+        private val feedbackLabel = context.getString(R.string.tap_counter_feedback)
+        private var feedbackAtMs: Long? = null
+
+        fun updateTapCount(count: Long, showFeedback: Boolean) {
+            counterLabel = context.getString(R.string.tap_counter_badge, count)
+            contentDescription = context.getString(R.string.tap_counter_description, count)
+            if (showFeedback) feedbackAtMs = SystemClock.uptimeMillis()
+            // 清零时立即撤下旧的 +1。
+            if (count == 0L) feedbackAtMs = null
+            invalidate()
+        }
+
         init {
             setWillNotDraw(false)
         }
@@ -633,6 +663,11 @@ class Pet(
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
+            drawPet(canvas)
+            drawTapCounter(canvas)
+        }
+
+        private fun drawPet(canvas: Canvas) {
             val d = current ?: return
             val w = width.toFloat()
             val h = height.toFloat()
@@ -650,6 +685,42 @@ class Pet(
             d.setBounds(0, 0, width, height)
             d.draw(canvas)
             canvas.restore()
+        }
+
+        private fun drawTapCounter(canvas: Canvas) {
+            // 画在原有悬浮窗内，不额外扩大挡住桌面点击的区域，也不随宠物镜像/Q 弹。
+            val pad = 6f * density
+            val maxTextWidth = width - 2f * pad - 8f * density
+            if (maxTextWidth <= 0f) return
+            val label = TextUtils.ellipsize(
+                counterLabel, counterPaint, maxTextWidth, TextUtils.TruncateAt.END,
+            ).toString()
+            val fm = counterPaint.fontMetrics
+            val badgeWidth = counterPaint.measureText(label) + 2f * pad
+            val badgeHeight = fm.bottom - fm.top + 6f * density
+            val left = (width - badgeWidth) / 2f
+            val top = 2f * density
+            counterPaint.color = 0xDD16223B.toInt()
+            canvas.drawRoundRect(
+                left, top, left + badgeWidth, top + badgeHeight,
+                10f * density, 10f * density, counterPaint,
+            )
+            counterPaint.color = 0xFFFFD782.toInt()
+            canvas.drawText(label, left + pad, top + 3f * density - fm.top, counterPaint)
+
+            val started = feedbackAtMs ?: return
+            val progress = (SystemClock.uptimeMillis() - started) / 650f
+            if (progress >= 1f) {
+                feedbackAtMs = null
+                return
+            }
+            feedbackPaint.color = 0xFFFFD782.toInt()
+            feedbackPaint.alpha = ((1f - progress) * 255).toInt().coerceIn(0, 255)
+            feedbackPaint.setShadowLayer(2f * density, 0f, density, 0xFF16223B.toInt())
+            val baseline = (top + badgeHeight + 17f * density)
+                .coerceAtMost(height - 3f * density) - 10f * density * progress
+            canvas.drawText(feedbackLabel, width / 2f, baseline, feedbackPaint)
+            postInvalidateOnAnimation()
         }
 
         // Drawable.Callback：动画帧推进时重绘

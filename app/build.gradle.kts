@@ -38,8 +38,14 @@ android {
         // 动画 WebP 已经压过，构建时不要再二次处理
         noCompress += listOf("webp")
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
-    // 刻意零第三方依赖：只用 Android 框架 API（minSdk 28 足够）
+    // 应用运行时只用 Android 框架 API；以下依赖仅供本地单元测试。
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.13")
 }

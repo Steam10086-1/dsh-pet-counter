@@ -1,6 +1,7 @@
 package com.dshpet.android
 
 import android.content.Context
+import android.content.SharedPreferences
 
 /** 极简本地偏好（尺寸 / 是否常驻），不依赖任何第三方库 */
 object Prefs {
@@ -13,6 +14,7 @@ object Prefs {
     private const val KEY_PETS = "pet_count"
     private const val KEY_BUBBLE = "bubble_on"
     private const val KEY_EDGE_HIDE = "edge_hide"
+    internal const val KEY_TAP_COUNT = "tap_count"
 
     const val DEFAULT_SIZE_DP = 150
     const val MIN_SIZE_DP = 80
@@ -21,6 +23,30 @@ object Prefs {
     const val MAX_PETS = 3
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /** 所有桌宠共用的累计点击数，与连点台词的冷却/计数相互独立。 */
+    fun tapCount(ctx: Context): Long = sp(ctx).getLong(KEY_TAP_COUNT, 0L)
+
+    @Synchronized
+    fun incrementTapCount(ctx: Context): Long {
+        val current = tapCount(ctx)
+        val next = if (current < Long.MAX_VALUE) current + 1L else current
+        sp(ctx).edit().putLong(KEY_TAP_COUNT, next).apply()
+        return next
+    }
+
+    @Synchronized
+    fun resetTapCount(ctx: Context) {
+        sp(ctx).edit().putLong(KEY_TAP_COUNT, 0L).apply()
+    }
+
+    fun registerListener(ctx: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sp(ctx).registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun unregisterListener(ctx: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sp(ctx).unregisterOnSharedPreferenceChangeListener(listener)
+    }
 
     fun sizeDp(ctx: Context): Int = sp(ctx).getInt(KEY_SIZE, DEFAULT_SIZE_DP)
 

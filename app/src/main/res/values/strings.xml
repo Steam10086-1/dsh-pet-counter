@@ -31,6 +31,15 @@
     <string name="sound_on">开启</string>
     <string name="sound_off">关闭</string>
 
+    <string name="tap_counter_title">敲敲大肥鱼 · 累计功德</string>
+    <string name="tap_counter_total">%1$d 次</string>
+    <string name="tap_counter_badge">功德 %1$d</string>
+    <string name="tap_counter_feedback">功德 +1</string>
+    <string name="tap_counter_description">大肥鱼，累计点击 %1$d 次</string>
+    <string name="tap_counter_hint">每次单击桌宠 +1，连续快点也计数；拖动、长按不计数。多只桌宠共用总数，收起或重启后保留。</string>
+    <string name="tap_counter_reset">清零</string>
+    <string name="tap_counter_reset_message">要清空所有桌宠的累计功德吗？清零后无法恢复。</string>
+
     <string name="pets_title">桌宠只数</string>
     <string name="pets_value">%1$d 只</string>
     <string name="bubble_title">碎碎念</string>
