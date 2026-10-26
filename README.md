@@ -25,8 +25,9 @@
 ## 下载安装
 
 到 [计数版 Releases](https://github.com/Steam10086-1/dsh-pet-counter/releases/latest)
-下载 `dsh-pet-tap-counter-480p.apk`，传到手机安装（需允许「安装未知来源应用」）。
-当前计数版提供 **480×270 / 24fps**，约 **290 MB（277 MiB）**，支持 Android 9 及以上。
+下载 `dsh-pet-tap-counter-640p.apk`，传到手机安装（需允许「安装未知来源应用」）。
+当前计数版提供 **640P 档（640×360 / 24fps）**，约 **445 MB（425 MiB）**，支持 Android 9 及以上。
+点击计数和计数牌 3 秒自动隐藏功能继续保留；旧的 480P 档仍可在历史 Release 中下载。
 Release 同时提供带素材的完整源码包、代码补丁和 SHA-256 校验值。
 
 **安装前注意**：此 APK 使用测试签名，与原项目 Release 签名不同，不能直接覆盖原版。
@@ -81,26 +82,28 @@ Release 同时提供带素材的完整源码包、代码补丁和 SHA-256 校验
 
 ```bash
 ffmpeg -c:v libvpx-vp9 -i in.webm \
-  -vf "fps=15,scale=480:-2:flags=lanczos" \
+  -vf "fps=24,scale=640:-2:flags=lanczos" \
   -c:v libwebp_anim -pix_fmt yuva420p -q:v 50 -loop 0 \
   out.webp
 ```
 
 关键点：**必须用 `-c:v libvpx-vp9` 解码**，默认解码器会把 alpha 丢成 `rgb24`。
 
-分辨率选 **480px** 是因为 150dp × density 3.275 ≈ 475px，正好 1:1；
+上游早期选择 **480px** 是因为 150dp × density 3.275 ≈ 475px，正好 1:1；
 用 300px 时会被放大 1.58 倍，看起来发虚。动画 WebP 体积随分辨率涨得很快
 （640px 全量约 530 MB，480px 约 156 MB）。
 
 ## 从源码构建
+
+Releases 附带的完整源码包已包含 640P / 24fps 动画、音效和立绘，使用该包时可直接配置 SDK 并构建，无需重新还原素材。
 
 **仓库不包含动画素材**（它们来自上游且有「禁止商用」约束，见 [NOTICE.md](NOTICE.md)），
 首次构建前先还原一次：
 
 ```bash
 # 1) 还原素材 + 生成配置（需要 node/npm 与 ffmpeg）
-./tools/fetch-and-transcode.sh          # Linux / macOS
-pwsh -File tools/fetch-and-transcode.ps1   # Windows PowerShell
+WIDTH=640 FPS=24 ./tools/fetch-and-transcode.sh          # Linux / macOS
+pwsh -File tools/fetch-and-transcode.ps1 -Width 640 -Fps 24   # Windows PowerShell
 
 # 2) 构建 debug APK（需要 JDK 17 + Android SDK 34）
 echo "sdk.dir=/path/to/android-sdk" > local.properties

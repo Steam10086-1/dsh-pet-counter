@@ -17,6 +17,10 @@ on:
       apk_sha256:
         description: Expected APK SHA-256
         required: true
+      apk_name:
+        description: APK filename for the release attachment
+        required: true
+        default: dsh-pet-tap-counter-480p.apk
       source_url:
         description: HTTPS URL for the complete source archive
         required: true
@@ -48,6 +52,7 @@ jobs:
           TAG: ${{ inputs.tag }}
           APK_URL: ${{ inputs.apk_url }}
           APK_SHA256: ${{ inputs.apk_sha256 }}
+          APK_NAME: ${{ inputs.apk_name }}
           SOURCE_URL: ${{ inputs.source_url }}
           SOURCE_SHA256: ${{ inputs.source_sha256 }}
         run: |
@@ -117,7 +122,10 @@ jobs:
               print(f'Verified {name}: {size} bytes, SHA-256 {actual}', flush=True)
               return path
 
-          apk = download('dsh-pet-tap-counter-480p.apk', os.environ['APK_URL'], os.environ['APK_SHA256'])
+          apk_name = os.environ['APK_NAME']
+          if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.apk', apk_name):
+              raise ValueError('Invalid APK filename')
+          apk = download(apk_name, os.environ['APK_URL'], os.environ['APK_SHA256'])
           source = download('dsh-pet-tap-counter-source.zip', os.environ['SOURCE_URL'], os.environ['SOURCE_SHA256'])
           patch = output / 'tap-counter.patch'
           patch.write_bytes(subprocess.check_output([
