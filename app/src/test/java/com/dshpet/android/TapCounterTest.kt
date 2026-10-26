@@ -3,6 +3,8 @@ package com.dshpet.android
 import android.app.Application
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -72,6 +74,67 @@ class TapCounterTest {
         event(pet.view, MotionEvent.ACTION_UP)
         // 让待完成的动画解码失效，避免测试触摸时启动随机动画链。
         pet.release()
+    }
+
+    private fun drawnText(pet: Pet): List<String> {
+        pet.view.layout(0, 0, pet.sizePx, pet.heightPx)
+        val canvas = Canvas(Bitmap.createBitmap(pet.sizePx, pet.heightPx, Bitmap.Config.ARGB_8888))
+        pet.view.draw(canvas)
+        val shadow = shadowOf(canvas)
+        return (0 until shadow.textHistoryCount).map { shadow.getDrawnTextEvent(it).text }
+    }
+
+    @Test
+    fun counterAppearsOnTapHidesAfterThreeSecondsAndReappearsOnNextTap() {
+        val pet = newPet()
+        val controller = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        controller.get().setContentView(pet.view)
+        repeat(8) { Prefs.incrementTapCount(context) }
+        pet.updateTapCount(Prefs.tapCount(context))
+        assertTrue(drawnText(pet).isEmpty())
+
+        tap(pet)
+        val firstTapMs = SystemClock.uptimeMillis()
+        assertEquals(listOf(
+            context.getString(R.string.tap_counter_badge, 9L),
+            context.getString(R.string.tap_counter_feedback),
+        ), drawnText(pet))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2900))
+        assertEquals(listOf(context.getString(R.string.tap_counter_badge, 9L)), drawnText(pet))
+        shadowOf(pet.view).clearWasInvalidated()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(firstTapMs + 3000 - SystemClock.uptimeMillis()))
+        assertTrue(shadowOf(pet.view).wasInvalidated())
+        assertTrue(drawnText(pet).isEmpty())
+        assertEquals(9L, Prefs.tapCount(context))
+
+        tap(pet)
+        assertEquals(listOf(
+            context.getString(R.string.tap_counter_badge, 10L),
+            context.getString(R.string.tap_counter_feedback),
+        ), drawnText(pet))
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun everyTapRestartsHideTimerButPassiveCountUpdatesDoNot() {
+        val pet = newPet()
+        val controller = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        controller.get().setContentView(pet.view)
+        tap(pet)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2500))
+        tap(pet)
+        val lastTapMs = SystemClock.uptimeMillis()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue(drawnText(pet).contains(context.getString(R.string.tap_counter_badge, 2L)))
+
+        pet.updateTapCount(77L)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2400))
+        assertEquals(listOf(context.getString(R.string.tap_counter_badge, 77L)), drawnText(pet))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(lastTapMs + 3000 - SystemClock.uptimeMillis()))
+        assertTrue(drawnText(pet).isEmpty())
+        pet.updateTapCount(78L)
+        assertTrue(drawnText(pet).isEmpty())
+        controller.pause().stop().destroy()
     }
 
     @Test

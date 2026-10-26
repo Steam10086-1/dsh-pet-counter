@@ -50,6 +50,8 @@ class Pet(
         private const val HIDE_RATIO = 0.55
         /** 躲藏位移的每帧平滑系数 */
         private const val HIDE_LERP = 0.18
+        /** 点击后计数牌停留多久；连续点击从最后一次重新计时。 */
+        private const val TAP_COUNTER_VISIBLE_MS = 3000L
         /** 载入解压/解码动画用的后台线程 */
         private val io = Executors.newSingleThreadExecutor()
     }
@@ -637,11 +639,23 @@ class Pet(
         private var counterLabel = context.getString(R.string.tap_counter_badge, 0L)
         private val feedbackLabel = context.getString(R.string.tap_counter_feedback)
         private var feedbackAtMs: Long? = null
+        private var counterUntilMs = 0L
+        private val hideCounter = Runnable {
+            counterUntilMs = 0L
+            feedbackAtMs = null
+            invalidate()
+        }
 
         fun updateTapCount(count: Long, showFeedback: Boolean) {
             counterLabel = context.getString(R.string.tap_counter_badge, count)
             contentDescription = context.getString(R.string.tap_counter_description, count)
-            if (showFeedback) feedbackAtMs = SystemClock.uptimeMillis()
+            if (showFeedback) {
+                val now = SystemClock.uptimeMillis()
+                feedbackAtMs = now
+                counterUntilMs = now + TAP_COUNTER_VISIBLE_MS
+                removeCallbacks(hideCounter)
+                postDelayed(hideCounter, TAP_COUNTER_VISIBLE_MS)
+            }
             // 清零时立即撤下旧的 +1。
             if (count == 0L) feedbackAtMs = null
             invalidate()
@@ -649,6 +663,13 @@ class Pet(
 
         init {
             setWillNotDraw(false)
+        }
+
+        override fun onDetachedFromWindow() {
+            removeCallbacks(hideCounter)
+            counterUntilMs = 0L
+            feedbackAtMs = null
+            super.onDetachedFromWindow()
         }
 
         fun updateLayoutSize(w: Int, h: Int) {
@@ -688,6 +709,8 @@ class Pet(
         }
 
         private fun drawTapCounter(canvas: Canvas) {
+            // 初始不显示；读取累计数或其他桌宠的点击只同步数字，不唤起/延长计数牌。
+            if (SystemClock.uptimeMillis() >= counterUntilMs) return
             // 画在原有悬浮窗内，不额外扩大挡住桌面点击的区域，也不随宠物镜像/Q 弹。
             val pad = 6f * density
             val maxTextWidth = width - 2f * pad - 8f * density
