@@ -1,0 +1,139 @@
+name: Publish verified APK and source
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag
+        required: true
+        default: v1.8.1-counter.1
+      source_ref:
+        description: Commit used to build the verified APK
+        required: true
+        default: 19a14eebf355668037485332188323efc06a4e52
+      apk_url:
+        description: HTTPS URL for the verified APK
+        required: true
+      apk_sha256:
+        description: Expected APK SHA-256
+        required: true
+      source_url:
+        description: HTTPS URL for the complete source archive
+        required: true
+      source_sha256:
+        description: Expected source archive SHA-256
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Verify downloads and publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          APK_URL: ${{ inputs.apk_url }}
+          APK_SHA256: ${{ inputs.apk_sha256 }}
+          SOURCE_URL: ${{ inputs.source_url }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+        run: |
+          python3 - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+
+          repo, tag = os.environ['REPO'], os.environ['TAG']
+          if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', tag):
+              raise ValueError('Invalid release tag')
+          release = json.loads(subprocess.check_output([
+              'gh', 'release', 'view', tag, '--repo', repo, '--json', 'tagName,isDraft',
+          ]))
+          if release['tagName'] != tag or not release['isDraft']:
+              raise ValueError('Only an existing draft release may be published')
+          output = Path('release-artifacts')
+          output.mkdir()
+
+          def download(name, url, expected):
+              if urlparse(url).scheme != 'https' or not re.fullmatch(r'[a-fA-F0-9]{64}', expected):
+                  raise ValueError('HTTPS URL and SHA-256 are required')
+              directory = output / (name + '.parts')
+              directory.mkdir()
+              headers = directory / 'headers.txt'
+              probe = directory / 'probe'
+              def curl(start, end, path, extra=()):
+                  subprocess.run([
+                      'curl', '--fail', '--silent', '--show-error', '--location',
+                      '--proto', '=https', '--proto-redir', '=https',
+                      '--connect-timeout', '20', '--max-time', '120',
+                      '--retry', '2', '--retry-all-errors', '--range', f'{start}-{end}',
+                      *extra, url, '--output', str(path),
+                  ], check=True)
+              curl(0, 0, probe, ('--dump-header', str(headers)))
+              ranges = re.findall(r'content-range:\s*bytes\s+0-0/(\d+)', headers.read_text(), re.I)
+              if not ranges or probe.stat().st_size != 1:
+                  raise ValueError('The download server must support byte ranges')
+              size = int(ranges[-1])
+              if not 0 < size <= 1024 ** 3:
+                  raise ValueError('Invalid download size')
+              chunk_size = 16 * 1024 ** 2
+              jobs = list(enumerate(range(0, size, chunk_size)))
+              def fetch(job):
+                  index, start = job
+                  end = min(start + chunk_size, size) - 1
+                  path = directory / f'{index:04d}.part'
+                  curl(start, end, path)
+                  if path.stat().st_size != end - start + 1:
+                      raise ValueError('Incomplete download')
+                  return path
+              with ThreadPoolExecutor(max_workers=4) as pool:
+                  parts = list(pool.map(fetch, jobs))
+              path = output / name
+              with path.open('wb') as destination:
+                  for part in parts:
+                      destination.write(part.read_bytes())
+                      part.unlink()
+              actual = hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()
+              if actual != expected.lower():
+                  raise ValueError(f'SHA-256 mismatch for {name}')
+              print(f'Verified {name}: {size} bytes, SHA-256 {actual}', flush=True)
+              return path
+
+          apk = download('dsh-pet-tap-counter-480p.apk', os.environ['APK_URL'], os.environ['APK_SHA256'])
+          source = download('dsh-pet-tap-counter-source.zip', os.environ['SOURCE_URL'], os.environ['SOURCE_SHA256'])
+          patch = output / 'tap-counter.patch'
+          patch.write_bytes(subprocess.check_output([
+              'git', 'diff', '--binary', 'eca369a4318766e057d2b62d9db5bc1447ab62e8', 'HEAD',
+          ]))
+          checksums = output / 'SHA256SUMS.txt'
+          checksums.write_text(''.join(
+              hashlib.file_digest(path.open('rb'), 'sha256').hexdigest() + '  ' + path.name + '\n'
+              for path in (apk, source, patch)
+          ))
+          subprocess.run([
+              'gh', 'release', 'upload', tag, '--repo', repo, '--clobber',
+              *map(str, (apk, source, patch, checksums)),
+          ], check=True)
+          subprocess.run([
+              'gh', 'release', 'edit', tag, '--repo', repo, '--draft=false', '--latest',
+          ], check=True)
+          print(f'Published https://github.com/{repo}/releases/tag/{tag}', flush=True)
+          PY
